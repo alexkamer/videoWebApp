@@ -195,6 +195,43 @@
   text-align: center;
 }
 
+.actionButtons {
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid #ddd;
+  background-color: #f9f9f9;
+  color: #333;
+}
+
+.actionButton:hover {
+  background-color: #f0f0f0;
+  border-color: #ccc;
+}
+
+.downloadButton {
+  background-color: #4caf50;
+  border-color: #43a047;
+  color: white;
+}
+
+.downloadButton:hover {
+  background-color: #43a047;
+  border-color: #388e3c;
+}
+
 @media (max-width: 768px) {
   .title {
     font-size: 1.4rem;
@@ -204,5 +241,9 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0.5rem;
+  }
+  
+  .actionButtons {
+    flex-direction: column;
   }
 }

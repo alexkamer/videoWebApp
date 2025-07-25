@@ -7,6 +7,7 @@ import Logo from '../../components/Logo';
 import TranscriptViewer from '../../components/TranscriptViewer';
 import AISummary from '../../components/AISummary';
 import YouTubePlayer from '../../components/YouTubePlayer';
+import DownloadModal from '../../components/DownloadModal';
 
 export default function WatchPage() {
   const router = useRouter();
@@ -18,6 +19,7 @@ export default function WatchPage() {
   const [showMoreButton, setShowMoreButton] = useState(false);
   const [transcript, setTranscript] = useState([]);
   const [playerReady, setPlayerReady] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
   const descriptionRef = useRef(null);
 
   useEffect(() => {
@@ -138,6 +140,15 @@ export default function WatchPage() {
               )}
             </div>
             
+            <div className={styles.actionButtons}>
+              <button 
+                className={`${styles.actionButton} ${styles.downloadButton}`}
+                onClick={() => setShowDownloadModal(true)}
+              >
+                Download Video
+              </button>
+            </div>
+            
             <div 
               className={`${styles.description} ${isExpanded ? styles.expanded : styles.collapsed}`}
               ref={descriptionRef}
@@ -181,6 +192,14 @@ export default function WatchPage() {
           Back to Results
         </Link>
       </main>
+      
+      {/* Download Modal */}
+      <DownloadModal 
+        isOpen={showDownloadModal} 
+        onClose={() => setShowDownloadModal(false)} 
+        videoId={id} 
+        videoTitle={videoDetails?.snippet?.title || ''}
+      />
     </div>
   );
 }

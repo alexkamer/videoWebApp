@@ -109,7 +109,7 @@ def agno_summarize(transcript, video_title=None):
                 prompt += f" for the video titled: '{video_title}'"
                 
             prompt += ". Focus on the main topics and key points.\n\n"
-            prompt += transcript_text[:4000]  # Limit length to avoid token limits
+            prompt += transcript_text # Limit length to avoid token limits
             
             # Call OpenAI directly
             return llm(prompt)
