@@ -19,6 +19,18 @@
   position: relative;
 }
 
+.thumbnailLink {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.thumbnailLink:hover {
+  opacity: 0.9;
+}
+
 .thumbnail img {
   width: 100%;
   height: 100%;
@@ -49,6 +61,17 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.titleLink {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.titleLink:hover {
+  color: #667eea;
+  text-decoration: underline;
 }
 
 .description {

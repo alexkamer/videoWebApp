@@ -7,7 +7,13 @@ export default function Pagination({
   currentPage = 1,
   searchQuery,
   hasNextPage,
-  hasPrevPage
+  hasPrevPage,
+  contentType = 'all',
+  duration = 'any',
+  caption = 'any',
+  quality = 'any',
+  uploadDate = 'any',
+  sortOrder = 'relevance'
 }) {
   const router = useRouter();
   
@@ -71,7 +77,7 @@ export default function Pagination({
   const pageNumbers = getPageNumbers();
   
   // Only render if we have pagination info
-  if (totalResults <= resultsPerPage && !nextPageToken) {
+  if (totalResults <= resultsPerPage) {
     return null;
   }
 
@@ -87,7 +93,7 @@ export default function Pagination({
         {/* Previous button */}
         {hasPrevPage && (
           <Link 
-            href={`/results?search_query=${encodeURIComponent(searchQuery)}&page=${currentPage - 1}`}
+            href={`/results?search_query=${encodeURIComponent(searchQuery)}&content_type=${contentType}&duration=${duration}&caption=${caption}&quality=${quality}&uploadDate=${uploadDate}&sortOrder=${sortOrder}&page=${currentPage - 1}`}
             className={`${styles.pageButton} ${styles.navButton}`}
           >
             &lt; Prev
@@ -101,7 +107,7 @@ export default function Pagination({
           ) : (
             <Link
               key={page}
-              href={`/results?search_query=${encodeURIComponent(searchQuery)}&page=${page}`}
+              href={`/results?search_query=${encodeURIComponent(searchQuery)}&content_type=${contentType}&duration=${duration}&caption=${caption}&quality=${quality}&uploadDate=${uploadDate}&sortOrder=${sortOrder}&page=${page}`}
               className={`${styles.pageButton} ${page === currentPage ? styles.active : ''}`}
             >
               {page}
@@ -112,7 +118,7 @@ export default function Pagination({
         {/* Next button */}
         {hasNextPage && (
           <Link 
-            href={`/results?search_query=${encodeURIComponent(searchQuery)}&page=${currentPage + 1}`}
+            href={`/results?search_query=${encodeURIComponent(searchQuery)}&content_type=${contentType}&duration=${duration}&caption=${caption}&quality=${quality}&uploadDate=${uploadDate}&sortOrder=${sortOrder}&page=${currentPage + 1}`}
             className={`${styles.pageButton} ${styles.navButton}`}
           >
             Next &gt;

@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import styles from '../styles/DownloadModal.module.css';
 
 export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) {
   const [formats, setFormats] = useState([]);
+  const [videoFormats, setVideoFormats] = useState([]);
+  const [audioFormats, setAudioFormats] = useState([]);
+  const [videoAudioFormats, setVideoAudioFormats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedFormat, setSelectedFormat] = useState(null);
@@ -12,6 +15,90 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
   const [selectedQuality, setSelectedQuality] = useState(null); // 'best', '1080p', '720p', '480p'
   const [availableResolutions, setAvailableResolutions] = useState([]);
   const [customFilename, setCustomFilename] = useState(''); // For user-editable filename
+
+  // Define functions before useEffect hooks to avoid dependency issues
+  const fetchFormats = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    
+    // Default to showing standard resolutions
+    setAvailableResolutions(['best', '1080p', '720p', '480p']);
+
+    try {
+      const response = await fetch(`/api/youtube/download/formats?id=${videoId}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch formats');
+      }
+
+      const data = await response.json();
+      
+      // Process formats
+      if (data.formats && data.formats.length > 0) {
+        console.log('Formats received:', data.formats);
+        setFormats(data.formats);
+        
+        // Set specialized format arrays if available
+        if (data.video_formats) setVideoFormats(data.video_formats);
+        if (data.audio_formats) setAudioFormats(data.audio_formats);
+        if (data.video_audio_formats) setVideoAudioFormats(data.video_audio_formats);
+        
+        // Generate available resolutions list from actual formats
+        const uniqueResolutions = new Set(['best']);
+        
+        // Process video formats for resolutions
+        if (data.video_formats) {
+          data.video_formats.forEach(format => {
+            if (format.height) {
+              uniqueResolutions.add(`${format.height}p`);
+            }
+          });
+        }
+        
+        // Process video+audio formats for resolutions
+        if (data.video_audio_formats) {
+          data.video_audio_formats.forEach(format => {
+            if (format.height) {
+              uniqueResolutions.add(`${format.height}p`);
+            }
+          });
+        }
+        
+        // Convert to sorted array
+        const sortedResolutions = Array.from(uniqueResolutions).sort((a, b) => {
+          if (a === 'best') return -1;
+          if (b === 'best') return 1;
+          return parseInt(b) - parseInt(a);
+        });
+        
+        setAvailableResolutions(sortedResolutions);
+      } else {
+        setAvailableResolutions(['best', '1080p', '720p', '480p']);
+      }
+    } catch (err) {
+      console.error('Error fetching formats:', err);
+      setError(err.message);
+      setAvailableResolutions(['best', '1080p', '720p', '480p']);
+    } finally {
+      setLoading(false);
+    }
+  }, [videoId]);
+
+  const handleSelectQuality = useCallback((quality) => {
+    setSelectedQuality(quality);
+    
+    // Auto-select appropriate format based on quality
+    if (downloadType === 'audio' && audioFormats.length > 0) {
+      // For audio, select best quality audio format
+      const bestAudio = audioFormats.find(f => f.quality === 'best') || audioFormats[0];
+      setSelectedFormat(bestAudio);
+    } else if (downloadType === 'video' && videoFormats.length > 0) {
+      // For video, select format matching quality
+      const matchingVideo = videoFormats.find(f => f.height === parseInt(quality)) || videoFormats[0];
+      setSelectedFormat(matchingVideo);
+    }
+  }, [downloadType, audioFormats, videoFormats]);
 
   // Fetch available formats when modal opens
   useEffect(() => {
@@ -23,7 +110,7 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
       setSelectedFormat(null);
       setDownloadInfo(null);
     }
-  }, [isOpen, videoId]);
+  }, [isOpen, videoId, fetchFormats]);
   
   // Auto-select best quality for audio when audio type is selected
   useEffect(() => {
@@ -34,7 +121,7 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [downloadType, selectedQuality, downloadInfo]);
+  }, [downloadType, selectedQuality, downloadInfo, handleSelectQuality]);
 
   // Determine available resolutions when formats are loaded
   useEffect(() => {
@@ -90,40 +177,6 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
     }
   }, [formats]);
 
-  const fetchFormats = async () => {
-    setLoading(true);
-    setError(null);
-    
-    // Default to showing standard resolutions
-    setAvailableResolutions(['best', '1080p', '720p', '480p']);
-
-    try {
-      const response = await fetch(`/api/youtube/download/formats?id=${videoId}`);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch formats');
-      }
-
-      const data = await response.json();
-      
-      // Process formats
-      if (data.formats && data.formats.length > 0) {
-        console.log('Formats received:', data.formats);
-        setFormats(data.formats);
-      } else {
-        // If formats parsing failed, show error
-        console.error('Format parsing failed, raw output:', data.raw_output);
-        // Don't set error - we'll use default resolutions
-      }
-    } catch (err) {
-      console.error('Error fetching formats:', err);
-      // Don't set error - we'll use default resolutions
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const fetchDownloadInfo = useCallback(async (formatCode, qualityLabel = '') => {
     setInfoLoading(true);
     setDownloadInfo(null);
@@ -161,9 +214,16 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
     
     // Get extension from original filename or determine based on type
     const extension = downloadType === 'audio' ? '.mp3' : '.mp4';
+    
+    // Sanitize the custom filename to prevent XSS attacks
+    // Only allow safe characters in the filename
+    const sanitizedFilename = customFilename
+      .replace(/[^a-zA-Z0-9\s._-]/g, '_') // Replace disallowed chars with underscore
+      .replace(/\s+/g, '_')               // Replace spaces with underscores
+      .trim();
       
-    // Create filename from user's input + correct extension
-    const finalFilename = customFilename.replace(/\.[^/.]+$/, '') + extension;
+    // Create filename from sanitized input + correct extension
+    const finalFilename = sanitizedFilename.replace(/\.[^/.]+$/, '') + extension;
     
     console.log(`[Client] Downloading with custom filename: ${finalFilename}`);
     
@@ -175,10 +235,21 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
         
         // Make fetch request to download API with custom filename
         const encodedFilename = encodeURIComponent(finalFilename);
-        const url = `/api/youtube/download/${videoId}?format=${selectedFormat}&customFilename=${encodedFilename}`;
+        // Make sure to properly encode the format string to handle special characters
+        const encodedFormat = encodeURIComponent(selectedFormat);
+        const url = `/api/youtube/download/${videoId}?format=${encodedFormat}&customFilename=${encodedFilename}`;
         console.log(`[Client] Requesting download with URL: ${url}`);
         const response = await fetch(url);
-        if (!response.ok) throw new Error('Download failed');
+        if (!response.ok) {
+          // Try to parse the error response if it exists
+          try {
+            const errorData = await response.json();
+            throw new Error(errorData.message || errorData.error || 'Download failed');
+          } catch (jsonError) {
+            // If we can't parse JSON, just use the status text
+            throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+          }
+        }
         
         // Get the blob data
         const blob = await response.blob();
@@ -213,8 +284,19 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
     createDownloadLink();
   }, [videoId, selectedFormat, downloadType, customFilename, setInfoLoading, setError, onClose]);
 
-  // We're no longer filtering formats
-  const filteredFormats = formats;
+  // State for advanced mode - showing all formats
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  
+  // Filter formats based on type if in advanced mode
+  const filteredFormats = useMemo(() => {
+    if (!showAdvanced) return [];
+    if (downloadType === 'audio') {
+      return formats.filter(f => f.format_note === 'audio only' || !f.has_video);
+    } else if (downloadType === 'video') {
+      return formats.filter(f => f.has_video);
+    }
+    return formats;
+  }, [formats, downloadType, showAdvanced]);
 
   // Quick download options
   const handleSelectType = (type) => {
@@ -224,45 +306,6 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
     setDownloadInfo(null); // Reset download info when type changes
   };
   
-  const handleSelectQuality = (quality) => {
-    setSelectedQuality(quality);
-    
-    // Set the format string based on the selected type and quality
-    let formatString = '';
-    let formatLabel = '';
-    
-    if (downloadType === 'audio') {
-      // For audio, use MP3 format - will be converted using extract-audio
-      formatString = 'audio:bestaudio';
-      formatLabel = 'MP3 Audio';
-    } else {
-      // For video, set format based on quality and explicitly mark as video
-      switch (quality) {
-        case 'best':
-          formatString = 'video:best[ext=mp4]/bestvideo+bestaudio';
-          formatLabel = 'Best Quality';
-          break;
-        case '1080p':
-          formatString = 'video:bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]';
-          formatLabel = '1080p';
-          break;
-        case '720p':
-          formatString = 'video:bestvideo[height<=720][ext=mp4]+bestaudio/best[height<=720][ext=mp4]';
-          formatLabel = '720p';
-          break;
-        case '480p':
-          formatString = 'video:bestvideo[height<=480][ext=mp4]+bestaudio/best[height<=480][ext=mp4]';
-          formatLabel = '480p';
-          break;
-        default:
-          formatString = 'video:best[ext=mp4]';
-          formatLabel = 'Standard Quality';
-      }
-    }
-    
-    // Fetch download info for the selected format
-    fetchDownloadInfo(formatString, formatLabel);
-  };
 
   if (!isOpen) return null;
 
@@ -367,7 +410,18 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
                       id="customFilename"
                       className={styles.filenameInput}
                       value={customFilename} 
-                      onChange={(e) => setCustomFilename(e.target.value)}
+                      onChange={(e) => {
+                        // Limit filename length and filter out the most dangerous characters in real-time
+                        const value = e.target.value;
+                        // Basic client-side sanitization (server will do more thorough sanitization)
+                        const safeValue = value
+                          .replace(/[<>"'\\]/g, '') // Remove dangerous characters
+                          .substring(0, 200);       // Limit length
+                        setCustomFilename(safeValue);
+                      }}
+                      maxLength={200}
+                      pattern="[a-zA-Z0-9\s._-]*"
+                      title="Filename can only contain letters, numbers, spaces, dots, underscores and hyphens"
                     />
                     <span className={styles.extension}>
                       {downloadType === 'audio' ? '.mp3' : '.mp4'}
@@ -415,26 +469,60 @@ export default function DownloadModal({ isOpen, onClose, videoId, videoTitle }) 
                 ← Back
               </button>
               
-              <h4 className={styles.formatListHeader}>Available Formats:</h4>
+              <div className={styles.advancedToggle}>
+                <label>
+                  <input 
+                    type="checkbox" 
+                    checked={showAdvanced} 
+                    onChange={() => setShowAdvanced(!showAdvanced)}
+                  />
+                  Show all available formats (Advanced)
+                </label>
+              </div>
               
-              <ul className={styles.formatList}>
-                {filteredFormats.map((format, index) => (
-                  <li key={index} className={styles.formatItem}>
-                    <div className={styles.formatInfo}>
-                      <span className={styles.formatCode}>Format {format.format_code}</span>
-                      <span className={styles.formatDetails}>
-                        {format.format_note} • {format.extension} • {format.resolution} • {format.filesize}
-                      </span>
-                    </div>
-                    <button 
-                      className={styles.downloadButton}
-                      onClick={() => fetchDownloadInfo(format.format_code)}
-                    >
-                      Select
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {showAdvanced ? (
+                <>
+                  <h4 className={styles.formatListHeader}>All Available Formats:</h4>
+                  <p className={styles.advancedNote}>
+                    Select a specific format code to download exactly that format.
+                  </p>
+                  
+                  <ul className={styles.formatList}>
+                    {filteredFormats.map((format, index) => (
+                      <li key={index} className={styles.formatItem}>
+                        <div className={styles.formatInfo}>
+                          <span className={styles.formatCode}>Format {format.format_code}</span>
+                          <span className={styles.formatDetails}>
+                            {format.format_note} • {format.codec || format.extension} • 
+                            {format.resolution || 'N/A'} • {format.bitrate || 'N/A'} • {format.filesize || 'N/A'}
+                          </span>
+                        </div>
+                        <button 
+                          className={styles.downloadButton}
+                          onClick={() => fetchDownloadInfo(format.format_code)}
+                        >
+                          Select
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <div className={styles.qualityOptions}>
+                  <h4 className={styles.formatListHeader}>Select Quality:</h4>
+                  <div className={styles.optionsRow}>
+                    {availableResolutions.map(resolution => (
+                      <button 
+                        key={resolution}
+                        className={styles.qualityButton}
+                        onClick={() => handleSelectQuality(resolution)}
+                      >
+                        {resolution === 'best' ? 'Best Quality' : resolution}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

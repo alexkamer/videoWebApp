@@ -20,26 +20,33 @@ classifiers = [
 ]
 
 dependencies = [
-    "agno>=1.7.4",
-    "aiohttp>=3.12.14",
-    "fastapi==0.104.1",
-    "httpx==0.25.0",
-    "openai==1.2.4",
-    "passlib==1.7.4",
-    "psycopg2-binary==2.9.9",
-    "pydantic==2.4.2",
-    "python-dotenv>=1.1.1",
-    "python-jose==3.3.0",
-    "python-multipart==0.0.6",
-    "sqlalchemy==2.0.23",
-    "uvicorn==0.23.2",
+    "agno",
+    "aiohttp",
+    "fastapi",
+    "httpx",
+    "openai",
+    "passlib",
+    "psycopg[binary]",
+    "pydantic",
+    "python-dotenv",
+    "python-jose",
+    "python-multipart",
+    "requests",
+    "psutil",
+    "sqlalchemy",
+    "uvicorn",
+    "yt-dlp",
+    "youtube-transcript-api",
+    "azure-identity",
+    "packaging>=25.0",
+    "setuptools>=80.9.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "black>=23.0.0",
-    "flake8>=6.0.0",
+    "pytest",
+    "black",
+    "flake8",
 ]
 
 [tool.black]

@@ -69,6 +69,13 @@ export default function YouTubePlayer({ videoId, onReady }) {
         
         // Create player using the iframe
         playerRef.current = new window.YT.Player(iframe, {
+          videoId: videoId,  // Explicitly set videoId
+          playerVars: {
+            autoplay: 1,
+            modestbranding: 1,
+            rel: 0,
+            enablejsapi: 1
+          },
           events: {
             onReady: handlePlayerReady,
             onStateChange: handlePlayerStateChange,
@@ -78,6 +85,10 @@ export default function YouTubePlayer({ videoId, onReady }) {
         
         // Set global reference for compatibility with existing code
         window.player = playerRef.current;
+        
+        // Debug log player
+        console.log('YouTube Player created:', playerRef.current);
+        console.log('Player methods available:', Object.keys(playerRef.current));
       } catch (error) {
         console.error('Error creating YouTube player:', error);
         setIsLoading(false);
@@ -118,12 +129,57 @@ export default function YouTubePlayer({ videoId, onReady }) {
     // Handle player events
     const handlePlayerReady = (event) => {
       console.log('YouTube player ready');
+      console.log('Player instance:', event.target);
+      console.log('Player methods:', Object.keys(event.target));
+      console.log('SeekTo method:', typeof event.target.seekTo);
+      
+      // Ensure the player has the seekTo method
+      if (!event.target.seekTo && event.target.getIframe) {
+        console.log('Adding seekTo method to player');
+        const iframe = event.target.getIframe();
+        
+        // Add seekTo method if missing
+        event.target.seekTo = (seconds, allowSeekAhead) => {
+          console.log(`Custom seekTo implementation called with ${seconds}`);
+          // Try different approaches to seek
+          try {
+            // 1. Try using postMessage
+            if (iframe && iframe.contentWindow) {
+              iframe.contentWindow.postMessage(JSON.stringify({
+                event: 'command',
+                func: 'seekTo',
+                args: [seconds, allowSeekAhead || true]
+              }), '*');
+            }
+            
+            // 2. Try updating the URL with start parameter
+            const currentSrc = iframe.src;
+            const newSrc = currentSrc.includes('?') 
+              ? currentSrc.replace(/([&?])start=\d+/, '$1start=' + Math.floor(seconds))
+              : `${currentSrc}?start=${Math.floor(seconds)}`;
+            
+            if (newSrc !== currentSrc && !currentSrc.includes('start=')) {
+              console.log(`Updating iframe src to: ${newSrc}`);
+              iframe.src = newSrc;
+            }
+          } catch (e) {
+            console.error('Error in custom seekTo:', e);
+          }
+        };
+      }
+      
       setIsLoading(false);
+      
+      // Double check all the critical methods are available
+      console.log('Player seekTo after fix:', typeof event.target.seekTo);
       
       // Fire onReady callback if provided
       if (typeof onReady === 'function') {
         onReady(event.target);
       }
+      
+      // Set window reference for maximum compatibility
+      window.player = event.target;
       
       // Dispatch event for backward compatibility
       window.dispatchEvent(new CustomEvent('youtubePlayerReady', { 

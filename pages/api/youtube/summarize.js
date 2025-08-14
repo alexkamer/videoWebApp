@@ -1,5 +1,5 @@
 import { summarizeTranscript } from '../../../utils/aiSummarizer';
-import apiCache from '../../../utils/apiCache';
+import videoSummaryCache from '../../../utils/videoSummaryCache';
 import rateLimiter from '../../../utils/rateLimiter';
 
 export default async function handler(req, res) {
@@ -30,11 +30,8 @@ export default async function handler(req, res) {
       });
     }
     
-    // Generate cache key based on video ID
-    const cacheKey = `ai_summary:${videoId}`;
-    
     // Check if we have a cached response
-    const cachedSummary = apiCache.get(cacheKey);
+    const cachedSummary = videoSummaryCache.getSummary(videoId);
     if (cachedSummary) {
       console.log(`[Cache hit] AI Summary for video: ${videoId}`);
       return res.status(200).json({
@@ -45,12 +42,19 @@ export default async function handler(req, res) {
     
     console.log(`[Cache miss] Generating AI Summary for video: ${videoId}`);
     
-    // Generate summary using Azure OpenAI
-    const summary = await summarizeTranscript(transcript, videoTitle || 'Unknown Video Title');
+    // Default to fast Python summarization for better quality and speed
+    // User can request detailed AI summary with a detailed flag if needed
+    const useDetailed = req.body.detailed === true;
+    const options = { usePython: true, useDetailed };
+    
+    console.log(`Summary generation mode: ${useDetailed ? 'Detailed AI (Python)' : 'Fast AI (Python)'}`);
+    
+    // Generate summary using the appropriate method based on options
+    const summary = await summarizeTranscript(transcript, videoTitle || 'Unknown Video Title', options);
     
     // Cache the summary
     if (summary && videoId) {
-      apiCache.set(cacheKey, summary, 24 * 60 * 60 * 1000); // Cache for 24 hours
+      videoSummaryCache.setSummary(videoId, summary);
     }
     
     return res.status(200).json({

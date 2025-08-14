@@ -1,15 +1,71 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import Script from 'next/script';
 import styles from '../../styles/VideoPage.module.css';
-import TranscriptViewer from '../../components/TranscriptViewer';
+import SimpleTranscriptViewer from '../../components/SimpleTranscriptViewer';
 import AISummary from '../../components/AISummary';
+import YouTubeEmbedPlayer from '../../components/YouTubeEmbedPlayer';
+import VideoQuiz from '../../components/VideoQuiz';
 
 export default function VideoPage() {
   const router = useRouter();
-  const { id, mode: initialMode } = router.query;
+  const { id, mode: initialMode, t: urlTimestamp } = router.query;
   const [mode, setMode] = useState('watch'); // 'watch', 'learn', or 'quiz'
+  const [isTranscriptVisible, setIsTranscriptVisible] = useState(false); // Control transcript panel visibility
   const [transcript, setTranscript] = useState([]);
+  const [currentTimestamp, setCurrentTimestamp] = useState(urlTimestamp ? parseInt(urlTimestamp) : 0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [playerInstance, setPlayerInstance] = useState(null);
+  
+  const [summary, setSummary] = useState('');
+
+  // Function to handle transcript segment clicks - use URL-based approach for consistent autoplay behavior
+  const handleTranscriptClick = (segment) => {
+    if (!segment || !segment.start) return;
+    
+    console.log(`VideoPage: Transcript segment clicked at ${segment.start}s`);
+    
+    // Use navigateToTimestamp which simulates a page reload
+    if (typeof window !== 'undefined' && window.navigateToTimestamp) {
+      try {
+        window.navigateToTimestamp(id, segment.start);
+      } catch (e) {
+        console.error('Error navigating to timestamp:', e);
+        
+        // Fallback - just update state
+        setCurrentTimestamp(segment.start);
+      }
+    } else {
+      // Fallback if navigation function not available
+      setCurrentTimestamp(segment.start);
+      
+      // Direct iframe approach as fallback
+      try {
+        const iframe = document.getElementById('youtube-player');
+        if (iframe && id) {
+          const timestamp = Math.floor(segment.start);
+          const newSrc = `https://www.youtube.com/embed/${id}?autoplay=1&start=${timestamp}`;
+          iframe.src = newSrc;
+        }
+      } catch (e) {
+        console.error('Error with fallback approach:', e);
+      }
+    }
+  };
+  
+  // Store videoId in window for components to access
+  useEffect(() => {
+    if (id && typeof window !== 'undefined') {
+      window.currentVideoId = id;
+    }
+    
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete window.currentVideoId;
+      }
+    };
+  }, [id]);
   
   // Update mode when the URL changes
   useEffect(() => {
@@ -62,78 +118,134 @@ export default function VideoPage() {
     }
   ];
 
-  // AI insights for learn mode
-  const aiInsights = [
-    {
-      timestamp: '00:45',
-      text: 'Key concept: Variables are containers for storing data values.'
-    },
-    {
-      timestamp: '03:12',
-      text: 'Important distinction: let vs const - use const when the value should not change.'
-    },
-    {
-      timestamp: '07:30',
-      text: 'Common misconception: JavaScript is not the same as Java, despite the similar name.'
-    }
-  ];
-
   return (
     <div className={styles.container}>
       <Head>
         <title>{videoData.title} | Video Learning App</title>
         <meta name="description" content={videoData.description} />
       </Head>
+      
+      <Script src="/reload-approach.js" strategy="beforeInteractive" />
 
       <main className={styles.main}>
-        <div className={styles.videoContainer}>
-          {/* Real YouTube embed */}
-          {id && (
-            <div className={styles.videoPlayer}>
-              <iframe
-                width="100%"
-                height="450"
-                src={`https://www.youtube.com/embed/${id}`}
-                title={videoData.title}
-                frameBorder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              ></iframe>
+        <div className={styles.mainContentContainer}>
+          {/* Left side: Video player */}
+          <div className={styles.videoContainer}>
+            {/* YouTube Player Component */}
+            {id && (
+              <div className={styles.videoPlayer}>
+                <YouTubeEmbedPlayer 
+                  videoId={id} 
+                  timestamp={currentTimestamp}
+                  onPlayerReady={player => {
+                    // Store global reference
+                    if (typeof window !== 'undefined') {
+                      window.youtubePlayer = player;
+                      
+                      // Set up time tracking interval
+                      const timeTrackingInterval = setInterval(() => {
+                        try {
+                          if (player && typeof player.getCurrentTime === 'function') {
+                            setCurrentTime(player.getCurrentTime());
+                          }
+                        } catch (e) {
+                          console.error('Error getting current time:', e);
+                        }
+                      }, 500);
+                      
+                      // Store for cleanup
+                      window.timeTrackingInterval = timeTrackingInterval;
+                    }
+                    setPlayerInstance(player);
+                    console.log('YouTube player instance ready:', player);
+                  }}
+                  onStateChange={state => {
+                    // Update current time whenever video is playing
+                    if (state === 1 && playerInstance) { // 1 = playing
+                      setCurrentTime(playerInstance.getCurrentTime());
+                    }
+                  }} 
+                />
+                
+                {/* Quiz overlay */}
+                {mode === 'quiz' && (
+                  <VideoQuiz
+                    videoId={id}
+                    transcript={transcript}
+                    summary={summary}
+                    isActive={mode === 'quiz'}
+                    currentTime={currentTime}
+                    onQuizComplete={(result) => {
+                      console.log('Quiz completed with score:', result.score);
+                    }}
+                    onPauseVideo={() => {
+                      if (playerInstance && typeof playerInstance.pauseVideo === 'function') {
+                        playerInstance.pauseVideo();
+                      }
+                    }}
+                    onResumeVideo={() => {
+                      if (playerInstance && typeof playerInstance.playVideo === 'function') {
+                        playerInstance.playVideo();
+                      }
+                    }}
+                  />
+                )}
+              </div>
+            )}
+            <div className={styles.videoControls}>
+              <button 
+                className={`${styles.modeButton} ${mode === 'watch' ? styles.active : ''}`}
+                onClick={() => {
+                  setMode('watch');
+                  router.push(`/video/${id}?mode=watch`, undefined, { shallow: true });
+                }}
+              >
+                <span>👁️ Watch Mode</span>
+              </button>
+              <button 
+                className={`${styles.modeButton} ${mode === 'learn' ? styles.active : ''}`}
+                onClick={() => {
+                  setMode('learn');
+                  router.push(`/video/${id}?mode=learn`, undefined, { shallow: true });
+                }}
+              >
+                <span>📚 Learn Mode</span>
+              </button>
+              <button 
+                className={`${styles.modeButton} ${mode === 'quiz' ? styles.active : ''}`}
+                onClick={() => {
+                  setMode('quiz');
+                  router.push(`/video/${id}?mode=quiz`, undefined, { shallow: true });
+                }}
+                disabled={!summary}
+              >
+                <span>✅ Quiz Mode</span>
+              </button>
             </div>
-          )}
-          <div className={styles.videoControls}>
-            <button 
-              className={`${styles.modeButton} ${mode === 'watch' ? styles.active : ''}`}
-              onClick={() => {
-                setMode('watch');
-                router.push(`/video/${id}?mode=watch`, undefined, { shallow: true });
-              }}
-            >
-              Watch Mode
-            </button>
-            <button 
-              className={`${styles.modeButton} ${mode === 'learn' ? styles.active : ''}`}
-              onClick={() => {
-                setMode('learn');
-                router.push(`/video/${id}?mode=learn`, undefined, { shallow: true });
-              }}
-            >
-              Learn Mode
-            </button>
-            <button 
-              className={`${styles.modeButton} ${mode === 'quiz' ? styles.active : ''}`}
-              onClick={() => {
-                setMode('quiz');
-                router.push(`/video/${id}?mode=quiz`, undefined, { shallow: true });
-              }}
-            >
-              Quiz Mode
-            </button>
+          </div>
+          
+          {/* Right side: Transcript panel (collapsed by default) */}
+          <div className={`${styles.transcriptPanel} ${!isTranscriptVisible ? styles.collapsed : ''}`}>
+            {id && (
+              <SimpleTranscriptViewer 
+                videoId={id} 
+                onTranscriptLoaded={setTranscript} 
+                onSegmentClick={handleTranscriptClick} 
+              />
+            )}
           </div>
         </div>
 
         <div className={styles.videoInfo}>
-          <h1>{videoData.title}</h1>
+          <div className={styles.titleRow}>
+            <h1>{videoData.title}</h1>
+            <button 
+              className={styles.transcriptToggle}
+              onClick={() => setIsTranscriptVisible(!isTranscriptVisible)}
+            >
+              {isTranscriptVisible ? 'Hide Transcript' : 'Show Transcript'}
+            </button>
+          </div>
           <div className={styles.meta}>
             <span>{videoData.views} views</span>
             <span>{videoData.duration}</span>
@@ -147,24 +259,21 @@ export default function VideoPage() {
         </div>
 
         <div className={styles.contentSection}>
-          {/* AI Summary always shown above transcript */}
+          {/* AI Summary shown below video */}
           {id && transcript && transcript.length > 0 && (
-            <AISummary videoId={id} videoTitle={videoData.title} transcript={transcript} />
+            <AISummary videoId={id} videoTitle={videoData.title} transcript={transcript} onSummaryLoaded={setSummary} />
           )}
-          {/* Always show transcript below video */}
-          {id && <TranscriptViewer videoId={id} onTranscriptLoaded={setTranscript} />}
+          
+          {/* Debug info */}
+          <div style={{ margin: '10px 0', padding: '10px', background: '#f0f0f0', borderRadius: '5px' }}>
+            <div><strong>Debug Info:</strong></div>
+            <div>Current Timestamp: {currentTimestamp ? `${currentTimestamp.toFixed(2)}s` : 'None'}</div>
+            <div>Video ID: {id || 'Loading...'}</div>
+            <div>Transcript Segments: {transcript?.length || 0}</div>
+          </div>
 
           {mode === 'learn' && (
             <div className={styles.learningSection}>
-              <h2>AI Insights</h2>
-              <div className={styles.insights}>
-                {aiInsights.map((insight, index) => (
-                  <div key={index} className={styles.insightCard}>
-                    <div className={styles.timestamp}>{insight.timestamp}</div>
-                    <div className={styles.insightText}>{insight.text}</div>
-                  </div>
-                ))}
-              </div>
               <div className={styles.summary}>
                 <h3>Video Summary</h3>
                 <p>

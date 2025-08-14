@@ -23,8 +23,15 @@ export default function Home() {
 
   const handleSearch = (query) => {
     if (query && query.trim()) {
-      // Redirect to results page with the search query
-      router.push(`/results?search_query=${encodeURIComponent(query.trim())}`);
+      const trimmedQuery = query.trim();
+      
+      // Save to search history
+      const newHistory = [trimmedQuery, ...searchHistory.filter(item => item !== trimmedQuery)].slice(0, 5);
+      setSearchHistory(newHistory);
+      localStorage.setItem('searchHistory', JSON.stringify(newHistory));
+      
+      // Redirect to results page with the search query and default preferences
+      router.push(`/results?search_query=${encodeURIComponent(trimmedQuery)}&caption=any`);
     }
   };
 

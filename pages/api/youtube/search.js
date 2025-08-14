@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { query, pageToken, contentType = 'all' } = req.query;
+    const { query, pageToken, contentType = 'all', duration = 'any', caption = 'any', quality = 'any', uploadDate = 'any', sortOrder = 'relevance' } = req.query;
     
     // Check rate limits before proceeding
     const rateLimitKey = 'youtube_search';
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     const maxResults = 50;
     
     // Generate cache key based on request parameters
-    const cacheKey = `youtube_search:${query}:${pageToken || 'no_page'}:${contentType}:${maxResults}`;
+    const cacheKey = `youtube_search:${query}:${pageToken || 'no_page'}:${contentType}:${duration}:${caption}:${quality}:${uploadDate}:${sortOrder}:${maxResults}`;
     
     // Check if we have a cached response
     const cachedResponse = apiCache.get(cacheKey);
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
       return res.status(200).json(cachedResponse);
     }
     
-    console.log(`[Cache miss] YouTube search: ${query}, page: ${pageToken || 'initial'}, type: ${contentType}`);
+    console.log(`[Cache miss] YouTube search: ${query}, page: ${pageToken || 'initial'}, type: ${contentType}, duration: ${duration}, caption: ${caption}, quality: ${quality}, uploadDate: ${uploadDate}, sortOrder: ${sortOrder}`);
     
     if (!query) {
       return res.status(400).json({ message: 'Query parameter is required' });
@@ -66,6 +66,65 @@ export default async function handler(req, res) {
       searchUrl += '&videoDuration=medium';
     }
     // 'all' doesn't need any additional parameters
+    
+    // Add duration filtering if specified (overrides content type duration)
+    if (duration === 'short') {
+      searchUrl += '&videoDuration=short';
+    } else if (duration === 'medium') {
+      searchUrl += '&videoDuration=medium';
+    } else if (duration === 'long') {
+      searchUrl += '&videoDuration=long';
+    }
+    // 'any' doesn't need additional parameters
+    
+    // Add caption filtering if specified
+    if (caption === 'closedCaption') {
+      searchUrl += '&videoCaption=closedCaption';
+    } else if (caption === 'none') {
+      searchUrl += '&videoCaption=none';
+    }
+    // 'any' doesn't need additional parameters
+    
+    // Always filter for embeddable videos to avoid "Video unavailable" errors
+    searchUrl += '&videoEmbeddable=true';
+    
+    // Add quality filtering if specified
+    if (quality === 'high') {
+      searchUrl += '&videoDefinition=high';
+    } else if (quality === 'standard') {
+      searchUrl += '&videoDefinition=standard';
+    }
+    // 'any' doesn't need additional parameters
+    
+    // Add upload date filtering if specified
+    if (uploadDate !== 'any') {
+      const now = new Date();
+      let publishedAfter;
+      
+      switch (uploadDate) {
+        case 'today':
+          publishedAfter = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          break;
+        case 'week':
+          publishedAfter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'month':
+          publishedAfter = new Date(now.getFullYear(), now.getMonth(), 1);
+          break;
+        case 'year':
+          publishedAfter = new Date(now.getFullYear(), 0, 1);
+          break;
+      }
+      
+      if (publishedAfter) {
+        searchUrl += `&publishedAfter=${publishedAfter.toISOString()}`;
+      }
+    }
+    
+    // Add sort order if specified (default is relevance)
+    if (sortOrder !== 'relevance') {
+      searchUrl += `&order=${sortOrder}`;
+    }
     
     // Add pageToken if provided
     if (pageToken) {

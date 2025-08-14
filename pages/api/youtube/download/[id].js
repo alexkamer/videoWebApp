@@ -17,12 +17,32 @@ export default async function handler(req, res) {
     console.log(`[Download API] Format requested: ${format}`);
     console.log(`[Download API] Custom filename: ${customFilename || 'none'}`);
     
+    // Validate YouTube video ID - YouTube IDs are typically 11 characters and contain alphanumeric chars, underscores, and hyphens
     if (!id) {
       return res.status(400).json({ message: 'Video ID is required' });
+    }
+    
+    // Strict YouTube video ID validation
+    const validYouTubeIdRegex = /^[a-zA-Z0-9_-]{11}$/;
+    if (!validYouTubeIdRegex.test(id)) {
+      console.error(`[Download API] Invalid YouTube video ID format: ${id}`);
+      return res.status(400).json({ message: 'Invalid YouTube video ID format' });
     }
 
     // Check for our custom prefix - MOVE THIS UP to define formatType early
     let formatType = 'video'; // Default to video
+    
+    // Validate the format parameter to prevent command injection
+    if (typeof format !== 'string') {
+      format = 'best';
+    }
+    
+    // Restrict format to allowed patterns
+    const validFormatRegex = /^[a-zA-Z0-9+._\[\]\-:=,\s]*$/;
+    if (!validFormatRegex.test(format)) {
+      console.error(`[Download API] Invalid format parameter detected: ${format}`);
+      return res.status(400).json({ message: 'Invalid format parameter' });
+    }
     
     // Check if format has our custom prefix
     if (format.startsWith('audio:')) {
@@ -40,7 +60,7 @@ export default async function handler(req, res) {
     
     console.log(`[Download API] Format type detected: ${formatType}`);
 
-    // Build YouTube URL
+    // Build YouTube URL - ID has already been validated using regex
     const videoUrl = `https://www.youtube.com/watch?v=${id}`;
     
     // Create a temporary directory for downloading
@@ -57,17 +77,67 @@ export default async function handler(req, res) {
       '--quiet', // Reduce unnecessary output
       '--progress',  // Show download progress
       // Options for better compatibility
-      '--prefer-ffmpeg', // Prefer ffmpeg for post-processing
-      '--format', formatType === 'audio' ? 'bestaudio' : 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio'
+      '--prefer-ffmpeg' // Prefer ffmpeg for post-processing
     ];
+    
+    console.log(`[Download API] Parsing format string: ${format}`);
+    
+    // Format selection handling
+    // Parse the format string to handle quality selection properly
+    if (format.startsWith('video:') || format.startsWith('audio:')) {
+      // Extract the actual format string
+      const formatStr = format.substring(format.indexOf(':') + 1);
+      
+      // Check if the format is a direct format code (number) or a format selector string
+      const isFormatCode = /^\d+$/.test(formatStr.trim());
+      
+      if (isFormatCode) {
+        // If it's a direct format code, use it directly
+        ytDlpArgs.push('--format', formatStr);
+        console.log(`[Download API] Using direct format code: ${formatStr}`);
+      } else {
+        // Otherwise treat as a format selector string (like bestvideo+bestaudio)
+        ytDlpArgs.push('--format', formatStr);
+        console.log(`[Download API] Using format selector: ${formatStr}`);
+        
+        // Add format sorting criteria
+        if (formatType === 'video' && !formatStr.includes('-S')) {
+          ytDlpArgs.push('--format-sort', 'res,codec,br');
+          console.log(`[Download API] Adding format sorting criteria: res,codec,br`);
+        }
+      }
+    } else {
+      // Default format selection if no custom format provided
+      const defaultFormat = formatType === 'audio' ? 'bestaudio' : 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio';
+      ytDlpArgs.push('--format', defaultFormat);
+      console.log(`[Download API] Using default format string: ${defaultFormat}`);
+      
+      // Add format sorting for default format as well
+      if (formatType === 'video') {
+        ytDlpArgs.push('--format-sort', 'res,codec,br');
+        console.log(`[Download API] Adding format sorting criteria: res,codec,br`);
+      }
+    }
+    
+    // Add more info in logs but don't be too verbose as it can cause issues
+    // ytDlpArgs.push('--verbose'); // Commenting out as it produces too much output
     
     // Add specific options based on format type
     if (formatType === 'audio') {
       ytDlpArgs.push('--extract-audio', '--audio-format', 'mp3');
     } else {
-      // For video, ensure we get a QuickTime compatible MP4
-      ytDlpArgs.push('--recode-video', 'mp4');
-      ytDlpArgs.push('--postprocessor-args', 'ffmpeg:-codec:v libx264 -codec:a aac -movflags +faststart');
+      // For video, ensure we get a high-quality compatible MP4
+      ytDlpArgs.push('--merge-output-format', 'mp4');
+      
+      // Keep the original quality as much as possible
+      if (!format.includes(',')) {
+        // For direct format codes, don't recode unless necessary
+        ytDlpArgs.push('--remux-video', 'mp4');
+      } else {
+        // Only for format strings that might need merging
+        // High quality settings for ffmpeg when encoding is needed
+        ytDlpArgs.push('--postprocessor-args', 'ffmpeg:-codec:v libx264 -crf 18 -preset medium -codec:a aac -movflags +faststart');
+      }
     }
     
     // Format type is already detected above
@@ -125,12 +195,33 @@ export default async function handler(req, res) {
     // Handle custom filename if provided, otherwise create one from title
     let cleanFilename;
     if (customFilename) {
-      // Use the custom filename provided by the user
-      cleanFilename = decodeURIComponent(customFilename);
-      console.log(`[Download API] Using custom filename: ${cleanFilename}`);
-      // Make sure the extension is correct
-      if (!cleanFilename.endsWith(extension)) {
-        cleanFilename = cleanFilename.replace(/\.[^/.]+$/, '') + extension;
+      try {
+        // Use the custom filename provided by the user but sanitize it properly
+        const decodedFilename = decodeURIComponent(customFilename);
+        
+        // Strict sanitization to prevent XSS and potential malicious filenames
+        // Only allow alphanumeric chars, spaces, underscores, hyphens, and periods
+        const sanitizedFilename = decodedFilename
+          .replace(/[^a-zA-Z0-9\s._-]/g, '_') // Replace disallowed chars with underscore
+          .replace(/\s+/g, '_')                 // Replace spaces with underscores
+          .trim();
+          
+        // Additional checks to ensure filename is safe
+        if (sanitizedFilename.length === 0) {
+          cleanFilename = `youtube-video-${id}${extension}`;
+        } else {
+          cleanFilename = sanitizedFilename;
+          // Make sure the extension is correct
+          if (!cleanFilename.endsWith(extension)) {
+            cleanFilename = cleanFilename.replace(/\.[^/.]+$/, '') + extension;
+          }
+        }
+        
+        console.log(`[Download API] Original filename: ${decodedFilename}`);
+        console.log(`[Download API] Sanitized filename: ${cleanFilename}`);
+      } catch (error) {
+        console.error(`[Download API] Error processing custom filename: ${error.message}`);
+        cleanFilename = `youtube-video-${id}${extension}`;
       }
     } else {
       // Create clean filename with appropriate extension
@@ -146,8 +237,11 @@ export default async function handler(req, res) {
       const downloadProcess = spawn('yt-dlp', ytDlpArgs);
       
       // Log progress for debugging
+      let errorOutput = '';
       downloadProcess.stderr.on('data', (data) => {
-        console.log(`[yt-dlp stderr] ${data.toString()}`);
+        const output = data.toString();
+        console.log(`[yt-dlp stderr] ${output}`);
+        errorOutput += output;
       });
       
       // Wait for download to complete
@@ -156,7 +250,8 @@ export default async function handler(req, res) {
           if (code === 0) {
             resolve();
           } else {
-            reject(new Error(`yt-dlp process exited with code ${code}`));
+            // Include error output in the error message for better debugging
+            reject(new Error(`yt-dlp process exited with code ${code}. Error: ${errorOutput.slice(-500)}`));
           }
         });
       });
@@ -192,9 +287,12 @@ export default async function handler(req, res) {
       
       
       // Content-Disposition with attachment forces the browser to display a Save dialog
-      const safeFilename = cleanFilename.replace(/"/g, '');
+      // Ensure safe filename for the Content-Disposition header
+      // Remove quotes and other problematic characters from the filename
+      const safeFilename = cleanFilename.replace(/["\\<>]/g, '_');
       
       // Force the browser to show Save As dialog by using attachment disposition
+      // Use proper escaping for both the fallback and UTF-8 encoded versions
       res.setHeader(
         'Content-Disposition', 
         `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(cleanFilename)}`

@@ -1,7 +1,7 @@
 .container {
   min-height: 100vh;
   padding: 0 1rem;
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 
@@ -9,9 +9,31 @@
   padding: 2rem 0;
 }
 
-.videoContainer {
+.mainContentContainer {
+  display: flex;
+  gap: 1.5rem;
   width: 100%;
   margin-bottom: 2rem;
+}
+
+.videoContainer {
+  flex: 1;
+  min-width: 0; /* Prevent flex item from overflowing */
+  margin-bottom: 2rem;
+}
+
+.transcriptPanel {
+  width: 350px;
+  height: calc(56.25vw * 0.8); /* Match exactly video height based on width */
+  max-height: calc(56.25vw * 0.8); /* Match approximately video height */
+  align-self: flex-start;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.transcriptPanel.collapsed {
+  width: 0;
+  padding: 0;
 }
 
 .videoPlayer {
@@ -55,10 +77,12 @@
   justify-content: center;
   gap: 1rem;
   margin-top: 1rem;
+  width: 100%;
+  flex-wrap: wrap;
 }
 
 .modeButton {
-  padding: 0.5rem 1rem;
+  padding: 0.75rem 1.25rem;
   border: 1px solid #0070f3;
   border-radius: 5px;
   background-color: white;
@@ -66,6 +90,12 @@
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
+  font-size: 1rem;
+  flex: 1;
+  min-width: 120px;
+  max-width: 200px;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .modeButton.active {
@@ -79,6 +109,27 @@
 
 .videoInfo {
   margin-bottom: 2rem;
+}
+
+.titleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.transcriptToggle {
+  padding: 0.5rem 1rem;
+  background-color: #0070f3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.transcriptToggle:hover {
+  background-color: #005bb5;
 }
 
 .videoInfo h1 {

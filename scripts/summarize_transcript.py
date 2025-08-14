@@ -2,167 +2,85 @@
 """
 Transcript Summarization Script using Agno agents
 
-This script uses Agno agents to summarize YouTube video transcripts.
-It retrieves transcripts from the web app's API and uses Agno for summarization.
+This script uses Agno agents to summarize video transcripts with async support.
+This is a refactored version using modular components for better organization.
 """
 
+import argparse
 import os
 import sys
-import json
-import argparse
-import requests
-from agno.agent import Agent
-from agno.models.azure.openai_chat import AzureOpenAI
+import asyncio
+import dotenv
 
-def get_llm():
-    """Initialize and return the Azure OpenAI model"""
-    return AzureOpenAI(
-        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        azure_deployment="gpt-4-1"
-    )
+# Add the current directory to the path so we can import the package
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-def fetch_transcript(video_id, api_base_url="http://localhost:3000"):
-    """Fetch transcript from the web app's API"""
-    url = f"{api_base_url}/api/youtube/transcript/{video_id}"
-    
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        if data.get("success") and data.get("transcript"):
-            return data["transcript"]
-        else:
-            raise Exception(f"Failed to fetch transcript: {data.get('message', 'Unknown error')}")
-    
-    except requests.RequestException as e:
-        print(f"Error fetching transcript: {e}")
-        return None
+# Load environment variables from .env.local
+dotenv.load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env.local'))
 
-def fetch_video_details(video_id, api_base_url="http://localhost:3000"):
-    """Fetch video details from the web app's API"""
-    url = f"{api_base_url}/api/youtube/video/{video_id}"
-    
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        if data.get("items") and len(data["items"]) > 0:
-            return data["items"][0]
-        else:
-            raise Exception("No video details found")
-    
-    except requests.RequestException as e:
-        print(f"Error fetching video details: {e}")
-        return None
+# Print environment variables for debugging
+print(f"AZURE_OPENAI_API_KEY: {'set' if os.getenv('AZURE_OPENAI_API_KEY') else 'not set'}")
+print(f"AZURE_OPENAI_ENDPOINT: {os.getenv('AZURE_OPENAI_ENDPOINT')}")
+print(f"AZURE_OPENAI_API_VERSION: {os.getenv('AZURE_OPENAI_API_VERSION')}")
 
-def clean_transcript_text(segments):
-    """Clean transcript text by removing HTML tags and timestamps"""
-    if not segments:
-        return ""
-    
-    import re
-    
-    cleaned_texts = []
-    for segment in segments:
-        text = segment["text"]
-        
-        # Remove HTML-style timing tags like <00:00:11.200>
-        text = re.sub(r'<\d{2}:\d{2}:\d{2}\.\d{3}>', '', text)
-        
-        # Remove style tags like <c>text</c>
-        text = re.sub(r'</?[a-z][^>]*>', '', text)
-        
-        # Remove any leftover angle brackets and their contents
-        text = re.sub(r'<[^>]*>', '', text)
-        
-        # Replace multiple spaces with a single space
-        text = re.sub(r'\s+', ' ', text)
-        
-        cleaned_texts.append(text.strip())
-    
-    return " ".join(cleaned_texts)
 
-def summarize_with_agno(transcript_text, video_title):
-    """Use Agno agent to summarize the transcript"""
-    if not transcript_text:
-        return "No transcript available to summarize."
-    
-    # Initialize LLM
-    llm = get_llm()
-    
-    # Create an Agno agent
-    agent = Agent(
-        name="TranscriptSummarizer",
-        llm=llm,
-        description="An agent that summarizes video transcripts"
-    )
-    
-    # Create the prompt
-    prompt = f"""
-    You are tasked with creating a concise summary of the following video transcript.
-    
-    The video title is: "{video_title}"
-    
-    Based on the transcript, provide:
-    1. A brief 2-3 sentence summary of what the video is about
-    2. 3-5 key points or main takeaways from the content
-    3. The overall tone or style of the video (educational, entertainment, tutorial, etc.)
-    
-    Format your response in clear, well-organized paragraphs.
-    
-    Here is the transcript:
-    {transcript_text[:10000]}  # Limiting to first 10,000 chars to avoid token limits
-    """
-    
-    # Get summary from agent
-    response = agent.generate(prompt)
-    return response
+# Import the summarizer from the modular package
+from transcript_summarizer.summarizer import summarize_transcript, summarize_transcript_async
+from transcript_summarizer.utils.text_processing import generate_basic_summary
+from transcript_summarizer.fast_summarizer import generate_fast_summary, generate_fast_summary_async
+
 
 def main():
-    """Main function to run the script"""
-    parser = argparse.ArgumentParser(description="Summarize YouTube video transcripts using Agno")
-    parser.add_argument("video_id", help="YouTube video ID")
-    parser.add_argument("--api-url", default="http://localhost:3000", help="Base URL for the web app API")
-    parser.add_argument("--output", help="Output file for summary (if not specified, print to console)")
+    """Main entry point for the script"""
+    parser = argparse.ArgumentParser(description="Summarize video transcript using Agno agents")
+    parser.add_argument("transcript_file", help="Path to the transcript file")
+    parser.add_argument("video_title", help="Title of the video")
+    parser.add_argument("--use-async", action="store_true", help="Use async execution for better performance")
+    parser.add_argument("--fast", action="store_true", help="Use fast summarization (default)")
+    parser.add_argument("--detailed", action="store_true", help="Use detailed summarization with chunking")
+    
     args = parser.parse_args()
     
-    print(f"Fetching transcript for video: {args.video_id}")
-    transcript = fetch_transcript(args.video_id, args.api_url)
-    
-    if not transcript:
+    # Read transcript file
+    try:
+        with open(args.transcript_file, 'r', encoding='utf-8') as f:
+            transcript_text = f.read().strip()
+    except FileNotFoundError:
+        print(f"Error: Transcript file '{args.transcript_file}' not found.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error reading transcript file: {e}")
         sys.exit(1)
     
-    print("Fetching video details...")
-    video_details = fetch_video_details(args.video_id, args.api_url)
-    video_title = video_details.get("snippet", {}).get("title", "Untitled Video") if video_details else "Untitled Video"
+    if not transcript_text:
+        print("Error: Transcript file is empty.")
+        sys.exit(1)
     
-    print(f"Processing transcript with {len(transcript)} segments")
-    transcript_text = clean_transcript_text(transcript)
+    print(f"Processing transcript for video: {args.video_title}")
+    print(f"Transcript length: {len(transcript_text)} characters")
     
-    print("Generating summary with Agno agent...")
-    summary = summarize_with_agno(transcript_text, video_title)
-    
-    # Format the output
-    result = {
-        "video_id": args.video_id,
-        "title": video_title,
-        "summary": summary
-    }
-    
-    # Output the result
-    if args.output:
-        with open(args.output, "w") as f:
-            json.dump(result, f, indent=2)
-        print(f"Summary saved to {args.output}")
+    # Choose summarization method
+    if args.detailed:
+        print("Using detailed summarization with chunking...")
+        if args.use_async:
+            summary = asyncio.run(summarize_transcript_async(transcript_text, args.video_title, debug_output=False))
+        else:
+            summary = summarize_transcript(transcript_text, args.video_title, debug_output=False)
     else:
-        print("\n" + "=" * 40 + "\n")
-        print(f"Summary for: {video_title}\n")
-        print(summary)
-        print("\n" + "=" * 40)
+        # Default to fast summarization
+        print("Using fast summarization for quick, concise results...")
+        if args.use_async:
+            summary = generate_fast_summary_async(transcript_text, args.video_title, debug_output=False)
+        else:
+            summary = generate_fast_summary(transcript_text, args.video_title, debug_output=False)
+    
+    # Print the summary
+    print("\n" + "="*50)
+    print("AI SUMMARY")
+    print("="*50)
+    print(summary)
+    print("="*50)
+
 
 if __name__ == "__main__":
     main()

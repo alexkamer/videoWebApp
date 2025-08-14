@@ -74,6 +74,14 @@ const formatDuration = (isoDuration) => {
   }
 };
 
+// Decode HTML entities
+const decodeHtmlEntities = (text) => {
+  if (!text) return '';
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value;
+};
+
 export default function VideoCard({ video }) {
   const [showDetails, setShowDetails] = useState(false);
   
@@ -105,15 +113,21 @@ export default function VideoCard({ video }) {
   return (
     <div className={styles.card}>
       <div className={styles.thumbnail}>
-        <img 
-          src={video.snippet.thumbnails.medium.url} 
-          alt={video.snippet.title}
-        />
-        {duration && <div className={styles.duration}>{duration}</div>}
+        <a href={`/watch/${videoId}`} className={styles.thumbnailLink}>
+          <img 
+            src={video.snippet.thumbnails.medium.url} 
+            alt={decodeHtmlEntities(video.snippet.title)}
+          />
+          {duration && <div className={styles.duration}>{duration}</div>}
+        </a>
       </div>
       <div className={styles.content}>
-        <h3 className={styles.title}>{video.snippet.title}</h3>
-        <p className={styles.description}>{video.snippet.description}</p>
+        <h3 className={styles.title}>
+          <a href={`/watch/${videoId}`} className={styles.titleLink}>
+            {decodeHtmlEntities(video.snippet.title)}
+          </a>
+        </h3>
+        <p className={styles.description}>{decodeHtmlEntities(video.snippet.description)}</p>
         
         <div className={styles.meta}>
           <span className={styles.channel}>{video.snippet.channelTitle}</span>

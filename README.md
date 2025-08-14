@@ -38,7 +38,8 @@ An interactive web application for searching, watching, and learning from educat
 - **Backend**: Node.js API routes with Python integration
 - **AI Services**: Azure OpenAI API for summaries and insights
 - **Video Processing**: yt-dlp for transcript extraction
-- **Package Management**: uv for Python, npm for Node.js
+- **Package Management**: uv for Python (latest versions), npm for Node.js
+- **Dependencies**: All packages use latest versions for easy development and deployment
 
 ## 📋 Prerequisites
 
@@ -56,6 +57,13 @@ cd video_web_app
 ```
 
 ### 2. Install Dependencies
+
+**Option 1: Quick Setup (Recommended)**
+```bash
+./setup.sh
+```
+
+**Option 2: Manual Setup**
 
 **Frontend (Node.js):**
 ```bash
@@ -85,24 +93,12 @@ VIRTUAL_ENV=/path/to/your/venv
 PYTHONPATH=/path/to/your/project
 ```
 
-### 4. Install yt-dlp (Required for Transcripts)
-```bash
-# macOS
-brew install yt-dlp
-
-# Ubuntu/Debian
-sudo apt install yt-dlp
-
-# Or via pip
-pip install yt-dlp
-```
-
-### 5. Run the Development Server
+### 4. Run the Development Server
 ```bash
 npm run dev
 ```
 
-The application will be available at `http://localhost:3001`
+The application will be available at `http://localhost:3000`
 
 ## 🔧 API Endpoints
 
@@ -150,6 +146,11 @@ video_web_app/
 
 ## 🧪 Development
 
+### Environment Management
+- **Python**: Uses `uv` for dependency management with latest package versions
+- **Node.js**: Uses `npm` with flexible versioning (^) for easy updates
+- **Dependencies**: All version pins removed for smooth development workflow
+
 ### Running Tests
 ```bash
 npm run lint
@@ -159,6 +160,15 @@ npm run lint
 ```bash
 npm run build
 npm start
+```
+
+### Updating Dependencies
+```bash
+# Update Python packages to latest versions
+uv sync --upgrade
+
+# Update Node.js packages to latest versions
+npm update
 ```
 
 ## 🤝 Contributing

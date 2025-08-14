@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import styles from '../styles/Results.module.css';
-import ContentTypeFilter, { CONTENT_TYPES } from '../components/ContentTypeFilter';
+import ContentTypeFilter, { CONTENT_TYPES, VIDEO_DURATIONS, VIDEO_CAPTIONS, VIDEO_QUALITY, UPLOAD_DATE, SORT_ORDER } from '../components/ContentTypeFilter';
 import SearchBar from '../components/SearchBar';
 import VideoCard from '../components/VideoCard';
 import Logo from '../components/Logo';
@@ -11,7 +11,10 @@ import { paginateItems } from '../utils/clientPagination';
 
 export default function ResultsPage() {
   const router = useRouter();
-  const { search_query, page, content_type } = router.query;
+  const { search_query: encodedQuery, page, content_type, duration, caption, quality, uploadDate, sortOrder } = router.query;
+  
+  // Decode the search query for display
+  const search_query = encodedQuery ? decodeURIComponent(encodedQuery) : '';
   
   const [videos, setVideos] = useState([]);
   const [filteredVideos, setFilteredVideos] = useState([]);
@@ -19,6 +22,11 @@ export default function ResultsPage() {
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [contentType, setContentType] = useState(CONTENT_TYPES.ALL);
+  const [selectedDuration, setSelectedDuration] = useState(VIDEO_DURATIONS.ANY);
+  const [selectedCaption, setSelectedCaption] = useState(VIDEO_CAPTIONS.ANY);
+  const [selectedQuality, setSelectedQuality] = useState(VIDEO_QUALITY.ANY);
+  const [selectedUploadDate, setSelectedUploadDate] = useState(UPLOAD_DATE.ANY);
+  const [selectedSortOrder, setSelectedSortOrder] = useState(SORT_ORDER.RELEVANCE);
   const [allVideos, setAllVideos] = useState([]);
   const [paginationInfo, setPaginationInfo] = useState({
     pageInfo: { totalResults: 0, resultsPerPage: 10, totalPages: 0 },
@@ -43,6 +51,80 @@ export default function ResultsPage() {
     }
   }, [content_type]);
 
+  // Set duration from URL or default to ANY
+  useEffect(() => {
+    if (duration && Object.values(VIDEO_DURATIONS).includes(duration)) {
+      setSelectedDuration(duration);
+    } else {
+      setSelectedDuration(VIDEO_DURATIONS.ANY);
+    }
+  }, [duration]);
+
+  // Set caption from URL or default to WITH_CAPTIONS
+  useEffect(() => {
+    if (caption && Object.values(VIDEO_CAPTIONS).includes(caption)) {
+      setSelectedCaption(caption);
+    } else {
+      setSelectedCaption(VIDEO_CAPTIONS.WITH_CAPTIONS);
+    }
+  }, [caption]);
+
+  // Set quality from URL or default to ANY
+  useEffect(() => {
+    if (quality && Object.values(VIDEO_QUALITY).includes(quality)) {
+      setSelectedQuality(quality);
+    } else {
+      setSelectedQuality(VIDEO_QUALITY.ANY);
+    }
+  }, [quality]);
+
+  // Set upload date from URL or default to ANY
+  useEffect(() => {
+    if (uploadDate && Object.values(UPLOAD_DATE).includes(uploadDate)) {
+      setSelectedUploadDate(uploadDate);
+    } else {
+      setSelectedUploadDate(UPLOAD_DATE.ANY);
+    }
+  }, [uploadDate]);
+
+  // Set sort order from URL or default to RELEVANCE
+  useEffect(() => {
+    if (sortOrder && Object.values(SORT_ORDER).includes(sortOrder)) {
+      setSelectedSortOrder(sortOrder);
+    } else {
+      setSelectedSortOrder(SORT_ORDER.RELEVANCE);
+    }
+  }, [sortOrder]);
+
+  // Cleanup effect to reset loading state on unmount
+  useEffect(() => {
+    return () => {
+      setLoading(false);
+      setError(null);
+    };
+  }, []);
+
+  // Reset all filters to default values
+  const handleResetFilters = () => {
+    const resetParams = {
+      search_query: encodedQuery,
+      page: '1',
+      content_type: CONTENT_TYPES.ALL,
+      duration: VIDEO_DURATIONS.ANY,
+      caption: VIDEO_CAPTIONS.WITH_CAPTIONS,
+      quality: VIDEO_QUALITY.ANY,
+      uploadDate: UPLOAD_DATE.ANY,
+      sortOrder: SORT_ORDER.RELEVANCE
+    };
+    
+    router.push({
+      pathname: router.pathname,
+      query: resetParams
+    });
+  };
+
+
+
   
   // Apply client-side filtering based on content type
   useEffect(() => {
@@ -64,13 +146,26 @@ export default function ResultsPage() {
     }
   }, [videos, contentType]);
 
-  // Perform search when query or content type changes
+  // Perform search when query, content type, duration, caption, quality, upload date, or sort order changes
   useEffect(() => {
     if (!search_query) return;
     
-    // Reset to page 1 when doing a new search
-    performSearch(search_query, contentType);
-  }, [search_query, contentType]);
+    let abortController = null;
+    
+    const doSearch = async () => {
+      // Reset to page 1 when doing a new search
+      abortController = await performSearch(search_query, contentType, selectedDuration, selectedCaption, selectedQuality, selectedUploadDate, selectedSortOrder);
+    };
+    
+    doSearch();
+    
+    // Cleanup function to abort any pending requests when dependencies change
+    return () => {
+      if (abortController) {
+        abortController.abort();
+      }
+    };
+  }, [search_query, contentType, selectedDuration, selectedCaption, selectedQuality, selectedUploadDate, selectedSortOrder]);
   
   // Apply pagination when page or filtered videos change
   useEffect(() => {
@@ -91,15 +186,27 @@ export default function ResultsPage() {
   }, [videos, currentPage]);
   
   
-  const performSearch = async (query, type = CONTENT_TYPES.ALL) => {
+  const performSearch = async (query, type = CONTENT_TYPES.ALL, duration = VIDEO_DURATIONS.ANY, caption = VIDEO_CAPTIONS.WITH_CAPTIONS, quality = VIDEO_QUALITY.ANY, uploadDate = UPLOAD_DATE.ANY, sortOrder = SORT_ORDER.RELEVANCE) => {
+    // Create an abort controller to handle component unmounting
+    const abortController = new AbortController();
+    
+    // Add a timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+      setError('Request timed out. Please try again.');
+      setLoading(false);
+    }, 30000); // 30 second timeout
+    
     setLoading(true);
     setError(null);
     
     try {
-      // Build URL with search query and content type, no pagination tokens
-      const url = `/api/youtube/search?query=${encodeURIComponent(query)}&contentType=${type}`;
+      // Build URL with search query, content type, duration, caption, quality, upload date, and sort order, no pagination tokens
+      const url = `/api/youtube/search?query=${encodeURIComponent(query)}&contentType=${type}&duration=${duration}&caption=${caption}&quality=${quality}&uploadDate=${uploadDate}&sortOrder=${sortOrder}`;
       
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        signal: abortController.signal
+      });
       
       if (!response.ok) {
         const errorData = await response.json();
@@ -107,32 +214,45 @@ export default function ResultsPage() {
       }
       
       const data = await response.json();
+      
+      // Only update state if the component is still mounted and this is the latest request
       setVideos(data.items || []);
       
       // Add to search history
-        const savedHistory = localStorage.getItem('searchHistory');
-        let searchHistory = [];
-        
-        if (savedHistory) {
-          try {
-            searchHistory = JSON.parse(savedHistory);
-          } catch (e) {
-            console.error('Failed to parse search history:', e);
-          }
+      const savedHistory = localStorage.getItem('searchHistory');
+      let searchHistory = [];
+      
+      if (savedHistory) {
+        try {
+          searchHistory = JSON.parse(savedHistory);
+        } catch (e) {
+          console.error('Failed to parse search history:', e);
         }
-        
-        if (query && !searchHistory.includes(query)) {
-          const updatedHistory = [query, ...searchHistory.slice(0, 9)];
-          localStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
-        }
+      }
+      
+      if (query && !searchHistory.includes(query)) {
+        const updatedHistory = [query, ...searchHistory.slice(0, 9)];
+        localStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
+      }
       
     } catch (err) {
+      // Don't set error if the request was aborted (component unmounted)
+      if (err.name === 'AbortError') {
+        return;
+      }
+      
       console.error('Search error:', err);
       setError(err.message);
       setVideos([]);
     } finally {
+      // Clear the timeout
+      clearTimeout(timeoutId);
+      // Only update loading state if the component is still mounted
       setLoading(false);
     }
+    
+    // Return the abort controller so it can be cleaned up
+    return abortController;
   };
 
   const handleSearch = (query) => {
@@ -141,7 +261,12 @@ export default function ResultsPage() {
       pathname: '/results',
       query: {
         search_query: encodeURIComponent(query),
-        content_type: contentType
+        content_type: contentType,
+        duration: selectedDuration,
+        caption: selectedCaption,
+        quality: selectedQuality,
+        uploadDate: selectedUploadDate,
+        sortOrder: selectedSortOrder
       }
     });
   };
@@ -153,12 +278,98 @@ export default function ResultsPage() {
       query: {
         ...router.query,
         content_type: type,
+        duration: selectedDuration,
+        caption: selectedCaption,
+        quality: selectedQuality,
+        uploadDate: selectedUploadDate,
+        sortOrder: selectedSortOrder,
         page: 1 // Reset to page 1
       }
     });
     
     setContentType(type);
   };
+
+  const handleDurationChange = (duration) => {
+    // Update URL with new duration
+    router.push({
+      pathname: '/results',
+      query: {
+        ...router.query,
+        duration: duration,
+        caption: selectedCaption,
+        quality: selectedQuality,
+        uploadDate: selectedUploadDate,
+        sortOrder: selectedSortOrder,
+        page: 1 // Reset to page 1
+      }
+    });
+    
+    setSelectedDuration(duration);
+  };
+
+  const handleCaptionChange = (caption) => {
+    // Update URL with new caption preference
+    router.push({
+      pathname: '/results',
+      query: {
+        ...router.query,
+        caption: caption,
+        quality: selectedQuality,
+        uploadDate: selectedUploadDate,
+        sortOrder: selectedSortOrder,
+        page: 1 // Reset to page 1
+      }
+    });
+    
+    setSelectedCaption(caption);
+  };
+
+  const handleQualityChange = (quality) => {
+    // Update URL with new quality preference
+    router.push({
+      pathname: '/results',
+      query: {
+        ...router.query,
+        quality: quality,
+        uploadDate: selectedUploadDate,
+        sortOrder: selectedSortOrder,
+        page: 1 // Reset to page 1
+      }
+    });
+    
+    setSelectedQuality(quality);
+  };
+
+  const handleUploadDateChange = (uploadDate) => {
+    // Update URL with new upload date preference
+    router.push({
+      pathname: '/results',
+      query: {
+        ...router.query,
+        uploadDate: uploadDate,
+        page: 1 // Reset to page 1
+      }
+    });
+    
+    setSelectedUploadDate(uploadDate);
+  };
+
+  const handleSortOrderChange = (sortOrder) => {
+    // Update URL with new sort order preference
+    router.push({
+      pathname: '/results',
+      query: {
+        ...router.query,
+        sortOrder: sortOrder,
+        page: 1 // Reset to page 1
+      }
+    });
+    
+    setSelectedSortOrder(sortOrder);
+  };
+
+
   
 
   return (
@@ -176,8 +387,28 @@ export default function ResultsPage() {
       <header className={styles.header}>
         <div className={styles.headerContent}>
           <Logo />
-          <div className={styles.searchBarContainer}>
-            <SearchBar onSearch={handleSearch} initialQuery={search_query} />
+          <div className={styles.searchAndFiltersRow}>
+            <div className={styles.searchBarContainer}>
+              <SearchBar onSearch={handleSearch} initialQuery={search_query} />
+            </div>
+            
+            <div className={styles.filtersContainer}>
+              <ContentTypeFilter 
+                selectedType={contentType} 
+                onTypeChange={handleContentTypeChange}
+                selectedDuration={selectedDuration}
+                onDurationChange={handleDurationChange}
+                selectedCaption={selectedCaption}
+                onCaptionChange={handleCaptionChange}
+                selectedQuality={selectedQuality}
+                onQualityChange={handleQualityChange}
+                selectedUploadDate={selectedUploadDate}
+                onUploadDateChange={handleUploadDateChange}
+                selectedSortOrder={selectedSortOrder}
+                onSortOrderChange={handleSortOrderChange}
+                onResetFilters={handleResetFilters}
+              />
+            </div>
           </div>
         </div>
       </header>
@@ -186,14 +417,9 @@ export default function ResultsPage() {
         {search_query && (
           <div className={styles.resultsHeader}>
             <h1 className={styles.resultsTitle}>
-              Search results for <span>"{search_query}"</span>
+              Search results for <span>&ldquo;{search_query}&rdquo;</span>
               {currentPage > 1 && <span className={styles.pageIndicator}> - Page {currentPage}</span>}
             </h1>
-            
-            <ContentTypeFilter 
-              selectedType={contentType} 
-              onTypeChange={handleContentTypeChange} 
-            />
           </div>
         )}
         
@@ -221,13 +447,19 @@ export default function ResultsPage() {
             
             {/* Show pagination */}
             {(
-              <Pagination 
-                pageInfo={paginationInfo.pageInfo}
-                currentPage={currentPage}
-                searchQuery={search_query}
-                hasNextPage={paginationInfo.hasNextPage}
-                hasPrevPage={paginationInfo.hasPrevPage}
-              />
+                          <Pagination 
+              pageInfo={paginationInfo.pageInfo}
+              currentPage={currentPage}
+              searchQuery={search_query}
+              hasNextPage={paginationInfo.hasNextPage}
+              hasPrevPage={paginationInfo.hasPrevPage}
+              contentType={contentType}
+              duration={selectedDuration}
+              caption={selectedCaption}
+              quality={selectedQuality}
+              uploadDate={selectedUploadDate}
+              sortOrder={selectedSortOrder}
+            />
             )}
           </>
         ) : videos.length > 0 && filteredVideos.length === 0 ? (
